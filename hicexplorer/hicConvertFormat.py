@@ -196,8 +196,11 @@ def main(args=None):
                     bin_size = hic_matrix.getBinSize()
 
                     for j, resolution in enumerate(args.resolutions):
+                        intervalTree = hic_matrix.interval_trees
+                        hic_matrix.interval_trees = None
                         hic_matrix_res = deepcopy(hic_matrix)
-
+                        hic_matrix_res.interval_trees = intervalTree
+                        hic_matrix.interval_trees = intervalTree
                         _mergeFactor = int(resolution) // bin_size
 
                         log.debug('bin size {}'.format(bin_size))
