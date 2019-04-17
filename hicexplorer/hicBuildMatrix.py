@@ -16,9 +16,10 @@ from copy import deepcopy
 from ctypes import Structure, c_uint, c_ushort
 from multiprocessing import Process, Queue
 from multiprocessing.sharedctypes import Array, RawArray
+import pandas as pd
 
-from intervaltree import IntervalTree, Interval
-
+# from intervaltree import IntervalTree, Interval
+from ncls import NCLS
 from Bio.Seq import Seq
 from Bio.Alphabet import generic_dna
 
@@ -288,6 +289,31 @@ def parse_arguments(args=None):
     return parser
 
 
+# def intervalListToIntervalTree(interval_list):
+#     r"""
+#     given a dictionary containing tuples of chrom, start, end,
+#     this is transformed to an interval trees. To each
+#     interval an id is assigned, this id corresponds to the
+#     position of the interval in the given array of tuples
+#     and if needed can be used to identify
+#     the index of a row/colum in the hic matrix.
+
+#     >>> bin_list = [('chrX', 0, 50000), ('chrX', 50000, 100000)]
+#     >>> res = intervalListToIntervalTree(bin_list)
+#     >>> sorted(res['chrX'])
+#     [Interval(0, 50000, 0), Interval(50000, 100000, 1)]
+#     """
+#     # log.debug('interval_list {}'.format(interval_list))
+#     bin_int_tree = {}
+
+#     for intval_id, intval in enumerate(interval_list):
+#         chrom, start, end = intval[0:3]
+#         if chrom not in bin_int_tree:
+#             bin_int_tree[chrom] = IntervalTree()
+#         bin_int_tree[chrom].add(Interval(start, end, intval_id))
+
+#     return bin_int_tree
+
 def intervalListToIntervalTree(interval_list):
     r"""
     given a dictionary containing tuples of chrom, start, end,
@@ -303,15 +329,41 @@ def intervalListToIntervalTree(interval_list):
     [Interval(0, 50000, 0), Interval(50000, 100000, 1)]
     """
     bin_int_tree = {}
-
+    chrom_current = None
+    start_list = []
+    end_list = []
+    intval_id_list = []
     for intval_id, intval in enumerate(interval_list):
         chrom, start, end = intval[0:3]
-        if chrom not in bin_int_tree:
-            bin_int_tree[chrom] = IntervalTree()
-        bin_int_tree[chrom].add(Interval(start, end, intval_id))
+        if chrom_current is None:
+            chrom_current = chrom
+            start_list.append(start)
+            end_list.append(end)
+            intval_id_list.append(intval_id)
+        elif chrom_current != chrom or intval_id == len(interval_list):
+            
+            start_list.append(start)
+            end_list.append(end)
+            intval_id_list.append(intval_id)
+            start_pd = pd.Series(start_list)
+            end_pd = pd.Series(end_list)
+            intval_id_pd = pd.Series(intval_id_list)
+#             print(start_pd)
+            bin_int_tree[chrom_current] = NCLS(start_pd.values, end_pd.values, intval_id_pd.values)
+            
+            start_list = []
+            end_list = []
+            intval_id_list = []
+            chrom_current = chrom
+        else:
+            start_list.append(start)
+            end_list.append(end)
+            intval_id_list.append(intval_id)
+#         if chrom not in bin_int_tree:
+#             bin_int_tree[chrom] = IntervalTree()
+#         bin_int_tree[chrom].add(NCLS(start, end, intval_id))
 
     return bin_int_tree
-
 
 def get_bins(bin_size, chrom_size, region=None):
     r"""
@@ -1048,7 +1100,10 @@ def main(args=None):
     """
 
     args = parse_arguments().parse_args(args)
-
+    fh = logging.FileHandler('spam.log')
+    fh.setLevel(logging.DEBUG)
+    log.addHandler(fh)
+    log.debug('foo')
     # for backwards compatibility
     if args.maxDistance is not None:
         args.maxLibraryInsertSize = args.maxDistance
@@ -1103,11 +1158,14 @@ def main(args=None):
     for i, seq in enumerate(bin_intval_tree):
         start = end + 1
         interval_list = []
-        for interval in bin_intval_tree[seq]:
-            interval_list.append((interval.begin, interval.end, interval.data))
+        interval_list_ncls = bin_intval_tree[seq].intervals()
+        # for interval in bin_intval_tree[seq]:
+        for interval in interval_list_ncls:
+            interval_list.append((interval[0], interval[1], interval[2]))
         end = start + len(bin_intval_tree[seq]) - 1
         index_dict[seq] = (start, end)
         interval_list = sorted(interval_list)
+        # log.debug('interval_list {}'.format(interval_list))
         shared_array_list.extend(interval_list)
     shared_build_intval_tree = RawArray(C_Interval, shared_array_list)
     bin_intval_tree = None
@@ -1367,6 +1425,7 @@ def main(args=None):
     chr_name_list, start_list, end_list = list(zip(*bin_intervals))
     bin_intervals = list(zip(chr_name_list, start_list, end_list, bin_max))
     hic_ma = hm.hiCMatrix()
+    log.debug('bin_intervals {}'.format(bin_intervals))
     hic_ma.setMatrix(hic_matrix, cut_intervals=bin_intervals)
 
     """
